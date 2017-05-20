@@ -2,10 +2,11 @@
 package slack
 
 import (
+	"errors"
 	"fmt"
 
-	"github.com/go-chat-bot/bot"
 	"github.com/nlopes/slack"
+	"github.com/xcsrz/go-chat-bot"
 )
 
 var (
@@ -14,12 +15,44 @@ var (
 	teaminfo *slack.TeamInfo
 
 	channelList = map[string]slack.Channel{}
+	userList    = map[string]slack.User{}
+	groupList   = map[string]slack.Group{}
 	params      = slack.PostMessageParameters{AsUser: true}
 	botUserID   = ""
+	Initialized = make(chan struct{})
+	initialized = false
 )
 
 func responseHandler(target string, message string, sender *bot.User) {
 	api.PostMessage(target, message, params)
+}
+
+func PostMessage(room, message string) error {
+	code, found := channelFromName(room)
+	if !found {
+		return errors.New("Could not identify room")
+	}
+	responseHandler(code, message, nil)
+	return nil
+}
+
+func channelFromName(name string) (code string, found bool) {
+	for _, channel := range channelList {
+		if channel.Name == name {
+			return channel.ID, true
+		}
+	}
+	for _, group := range groupList {
+		if group.Name == name {
+			return group.ID, true
+		}
+	}
+	for _, user := range userList {
+		if user.Name == name {
+			return user.ID, true
+		}
+	}
+	return "", false
 }
 
 // Extracts user information from slack API
@@ -77,6 +110,28 @@ func readChannelData(api *slack.Client) {
 	}
 	for _, channel := range channels {
 		channelList[channel.ID] = channel
+	}
+
+	groups, err := api.GetGroups(true)
+	if err != nil {
+		fmt.Printf("Error getting Groups: %s\n", err)
+		return
+	}
+	for _, group := range groups {
+		groupList[group.ID] = group
+	}
+
+	users, err := api.GetUsers()
+	if err != nil {
+		fmt.Printf("Error getting User Channels: %s\n", err)
+		return
+	}
+	for _, user := range users {
+		userList[user.ID] = user
+	}
+	if !initialized {
+		close(Initialized)
+		initialized = true
 	}
 }
 
